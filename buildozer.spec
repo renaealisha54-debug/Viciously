@@ -6,24 +6,24 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,db,bin
 version = 1.0.0
 
-# Mandatory Android Permissions
-android.permissions = RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, POST_NOTIFICATIONS
+# Android Permissions
+android.permissions = RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 
-# Python dependencies to bundle in the APK
+# Python dependencies to bundle
 requirements = python3, kivy, requests, pycryptodome
 
-# Orientation and Display settings
+# Display Settings
 orientation = portrait
 fullscreen = 0
 
-# Android Target Specifications
+# Android SDK/NDK Targets
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
 android.archs = arm64-v8a
 
-# Enable foreground service execution
-android.service = mediator_service:service.py
+# Foreground Service Declaration
+services = viciously_service:service.py:foreground
 
 [buildozer]
 log_level = 2
