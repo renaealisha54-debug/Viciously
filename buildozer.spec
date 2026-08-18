@@ -9,8 +9,8 @@ version = 1.0.0
 # Android Permissions
 android.permissions = RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 
-# Python dependencies
-requirements = python3, kivy==2.2.1, requests, pycryptodome
+# Python dependencies (pycryptodomex cross-compiles cleanly)
+requirements = python3, kivy==2.2.1, requests, pycryptodomex
 
 # Display Settings
 orientation = portrait
