@@ -1,9 +1,18 @@
 import os
 import time
+import subprocess
 import sqlite3
 import requests
 
-DB_FILE = "encrypted_memory.db"
+# Directory Setup
+BASE_DIR = os.path.expanduser("~/viciously")
+WHISPER_PATH = os.path.expanduser("~/whisper.cpp/build/bin/whisper-cli")
+MODEL_PATH = os.path.expanduser("~/whisper.cpp/models/ggml-tiny.en.bin")
+
+DB_FILE = os.path.join(BASE_DIR, "encrypted_memory.db")
+RAW_AUDIO = os.path.join(BASE_DIR, "raw_chunk.m4a")
+WAV_AUDIO = os.path.join(BASE_DIR, "chunk.wav")
+
 PASSPHRASE = "SuperSecretMediatorKey2026!"
 RETENTION_DAYS = 7
 
@@ -15,8 +24,6 @@ def fetch_knowledge_context():
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute(f"PRAGMA key = '{PASSPHRASE}';")
-        
-        # Select rules ordered by priority weight
         cursor.execute("""
             SELECT category, subject, fact_or_rule, weight 
             FROM knowledge_base 
@@ -51,7 +58,6 @@ def save_encrypted_memory(transcript, advice):
             (current_time, transcript, advice)
         )
         
-        # Auto-prune logs older than 7 days
         cutoff_time = current_time - (RETENTION_DAYS * 86400)
         cursor.execute("DELETE FROM memories WHERE timestamp < ?", (cutoff_time,))
         
@@ -60,16 +66,63 @@ def save_encrypted_memory(transcript, advice):
     except Exception as e:
         print(f"[DB Error] Failed to save memory: {e}")
 
-# --- Hybrid Intelligence Pipeline ---
+# --- Hardware Audio & STT Functions ---
+
+def record_audio_chunk(duration_sec=5):
+    """Captures a raw audio chunk using Termux API and converts to 16kHz WAV."""
+    print(f"\n[Microphone] Listening for {duration_sec} seconds...")
+    
+    # 1. Capture raw audio using termux-api
+    subprocess.run(["termux-audio-record", "-f", RAW_AUDIO], check=True)
+    time.sleep(duration_sec)
+    subprocess.run(["termux-audio-record", "-q"], check=True)
+    
+    # 2. Convert to 16kHz mono WAV format required by whisper.cpp
+    if os.path.exists(RAW_AUDIO):
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", RAW_AUDIO,
+            "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+            WAV_AUDIO
+        ]
+        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        os.remove(RAW_AUDIO) # Clear raw buffer immediately
+
+def transcribe_audio():
+    """Executes whisper.cpp C++ binary on the converted WAV file."""
+    if not os.path.exists(WAV_AUDIO):
+        return ""
+        
+    print("[Whisper.cpp] Transcribing audio in RAM...")
+    cmd = [
+        WHISPER_PATH,
+        "-m", MODEL_PATH,
+        "-f", WAV_AUDIO,
+        "-nt",          # No timestamps in output
+        "-otxt"         # Output plain text
+    ]
+    
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
+    # Read generated text file and clean up audio artifacts
+    txt_output = WAV_AUDIO + ".txt"
+    transcript = ""
+    if os.path.exists(txt_output):
+        with open(txt_output, "r") as f:
+            transcript = f.read().strip()
+        os.remove(txt_output)
+        
+    if os.path.exists(WAV_AUDIO):
+        os.remove(WAV_AUDIO) # Clear WAV buffer
+        
+    return transcript
+
+# --- De-escalation Advice Pipeline ---
 
 def generate_deescalation_advice(transcript):
     """Constructs prompt using active knowledge base context and queries LLM."""
     groq_api_key = os.getenv("GROQ_API_KEY")
-    
-    # 1. Fetch live rules/history
     background_context = fetch_knowledge_context()
     
-    # 2. Build contextual system prompt
     system_prompt = (
         "You are an objective conflict mediator monitoring a live conversation. "
         "Provide a calm, neutral 1-sentence de-escalation suggestion. "
@@ -77,14 +130,11 @@ def generate_deescalation_advice(transcript):
         f"{background_context}"
     )
     
-    # 3. Primary Path: Groq API Cloud Inference
+    # Primary Path: Groq API Cloud Inference
     if groq_api_key:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {groq_api_key}",
-                "Content-Type": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": "llama-3.1-8b-instant",
                 "messages": [
@@ -99,7 +149,7 @@ def generate_deescalation_advice(transcript):
         except Exception as e:
             print(f"[Cloud Fallback] Groq unavailable: {e}")
 
-    # 4. Fallback Path: Local Ollama Inference
+    # Fallback Path: Local Ollama Inference
     try:
         ollama_url = "http://localhost:11434/api/generate"
         prompt = f"{system_prompt}\n\nTranscript: \"{transcript}\"\nAdvice:"
@@ -112,14 +162,24 @@ def generate_deescalation_advice(transcript):
 
     return "Take a slow breath before responding to maintain calm."
 
-# --- Engine Loop Simulation ---
+# --- Main Engine Execution Loop ---
 
 if __name__ == "__main__":
     print("=== Viciously Engine Active ===")
-    sample_transcript = "We never discussed this budget item!"
     
-    print(f"\nProcessing Audio Input: '{sample_transcript}'")
-    advice = generate_deescalation_advice(sample_transcript)
-    
-    print(f"Generated Advice: {advice}")
-    save_encrypted_memory(sample_transcript, advice)
+    try:
+        while True:
+            record_audio_chunk(duration_sec=5)
+            transcript = transcribe_audio()
+            
+            # Skip processing if silence or empty audio
+            if transcript and len(transcript) > 3 and "[BLANK_AUDIO]" not in transcript:
+                print(f"\n[Transcript Detected]: '{transcript}'")
+                advice = generate_deescalation_advice(transcript)
+                print(f"[Mediator Advice]: {advice}")
+                save_encrypted_memory(transcript, advice)
+            else:
+                print("[Silence or ambient noise]")
+                
+    except KeyboardInterrupt:
+        print("\n[Engine Stopped Manually]")
