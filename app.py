@@ -11,7 +11,8 @@ def get_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(f"PRAGMA key = '{PASSPHRASE}';")
-    # Initialize knowledge base table if not present
+    
+    # Knowledge Base Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS knowledge_base (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +22,8 @@ def get_db():
             weight INTEGER DEFAULT 1
         )
     """)
+    
+    # Memories Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS memories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
