@@ -45,8 +45,8 @@ def fetch_knowledge_context():
         print(f"[DB Warning] Could not fetch knowledge context: {e}")
         return ""
 
-def save_encrypted_memory(transcript, advice):
-    """Saves transcript/advice and enforces the 7-day retention policy."""
+def save_encrypted_summary(summary, advice):
+    """Saves concise summary and advice to DB and enforces 7-day retention."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -55,7 +55,7 @@ def save_encrypted_memory(transcript, advice):
         current_time = int(time.time())
         cursor.execute(
             "INSERT INTO memories (timestamp, transcript, advice) VALUES (?, ?, ?)",
-            (current_time, transcript, advice)
+            (current_time, summary, advice)
         )
         
         cutoff_time = current_time - (RETENTION_DAYS * 86400)
@@ -63,6 +63,7 @@ def save_encrypted_memory(transcript, advice):
         
         conn.commit()
         conn.close()
+        print("[Storage] Encrypted summary saved. Old memories pruned.")
     except Exception as e:
         print(f"[DB Error] Failed to save memory: {e}")
 
@@ -74,15 +75,14 @@ def speak_advice(text):
         return
     print(f"[TTS Output] Speaking: '{text}'")
     try:
-        # -r 1.1 sets a slightly natural speech rate
         subprocess.run(["termux-tts-speak", "-r", "1.1", text], check=True)
     except Exception as e:
         print(f"[TTS Error] Could not speak advice: {e}")
 
-# --- Hardware Audio & STT Functions ---
+# --- Hardware Audio & File Cleanup ---
 
 def record_audio_chunk(duration_sec=5):
-    """Captures a raw audio chunk using Termux API and converts to 16kHz WAV."""
+    """Captures audio via Termux API and converts to 16kHz WAV."""
     print(f"\n[Microphone] Listening for {duration_sec} seconds...")
     
     subprocess.run(["termux-audio-record", "-f", RAW_AUDIO], check=True)
@@ -96,7 +96,10 @@ def record_audio_chunk(duration_sec=5):
             WAV_AUDIO
         ]
         subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        os.remove(RAW_AUDIO)
+        
+        # --- DELETE RAW AUDIO IMMEDIATELY ---
+        if os.path.exists(RAW_AUDIO):
+            os.remove(RAW_AUDIO)
 
 def transcribe_audio():
     """Executes whisper.cpp C++ binary on the converted WAV file."""
@@ -121,25 +124,28 @@ def transcribe_audio():
             transcript = f.read().strip()
         os.remove(txt_output)
         
+    # --- DELETE WAV AUDIO FILE IMMEDIATELY AFTER TRANSCRIPTION ---
     if os.path.exists(WAV_AUDIO):
         os.remove(WAV_AUDIO)
         
     return transcript
 
-# --- De-escalation Advice Pipeline ---
+# --- Summarization & Advice Pipeline ---
 
-def generate_deescalation_advice(transcript):
-    """Constructs prompt using active knowledge base context and queries LLM."""
+def process_transcript(transcript):
+    """Summarizes transcript into a short phrase and generates de-escalation advice."""
     groq_api_key = os.getenv("GROQ_API_KEY")
     background_context = fetch_knowledge_context()
     
     system_prompt = (
-        "You are an objective conflict mediator monitoring a live conversation. "
-        "Provide a calm, neutral 1-sentence de-escalation suggestion. "
-        "If a spoken point conflicts with an agreed boundary below, gently mention it.\n"
-        f"{background_context}"
+        "You are an objective conflict mediator monitoring a live conversation.\n"
+        f"{background_context}\n\n"
+        "Analyze the provided transcript and produce a JSON response with exactly two keys:\n"
+        '1. "summary": A brief 1-sentence summary of the key point or issue mentioned.\n'
+        '2. "advice": A calm, neutral 1-sentence de-escalation suggestion.'
     )
     
+    # Cloud Path (Groq API)
     if groq_api_key:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -150,30 +156,38 @@ def generate_deescalation_advice(transcript):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f'Current Transcript: "{transcript}"'}
                 ],
+                "response_format": {"type": "json_object"},
                 "temperature": 0.3
             }
             res = requests.post(url, json=payload, headers=headers, timeout=5)
             if res.status_code == 200:
-                return res.json()['choices'][0]['message']['content'].strip()
+                data = res.json()['choices'][0]['message']['content']
+                import json
+                parsed = json.loads(data)
+                return parsed.get("summary", transcript), parsed.get("advice", "Take a slow breath before responding.")
         except Exception as e:
-            print(f"[Cloud Fallback] Groq unavailable: {e}")
+            print(f"[Cloud Fallback] Groq failed: {e}")
 
+    # Local Fallback (Ollama)
     try:
         ollama_url = "http://localhost:11434/api/generate"
-        prompt = f"{system_prompt}\n\nTranscript: \"{transcript}\"\nAdvice:"
-        payload = {"model": "llama3.2:1b", "prompt": prompt, "stream": False}
+        prompt = f"{system_prompt}\n\nTranscript: \"{transcript}\"\nReturn JSON with keys 'summary' and 'advice':"
+        payload = {"model": "llama3.2:1b", "prompt": prompt, "format": "json", "stream": False}
         res = requests.post(ollama_url, json=payload, timeout=10)
         if res.status_code == 200:
-            return res.json()['response'].strip()
+            import json
+            parsed = json.loads(res.json()['response'])
+            return parsed.get("summary", transcript), parsed.get("advice", "Take a slow breath before responding.")
     except Exception:
         pass
 
-    return "Take a slow breath before responding to maintain calm."
+    # Simple text fallback if models are offline
+    return f"Discussed: {transcript[:50]}...", "Take a slow breath before responding to maintain calm."
 
 # --- Main Engine Execution Loop ---
 
 if __name__ == "__main__":
-    print("=== Viciously Engine Active (TTS Enabled) ===")
+    print("=== Viciously Engine Active (Audio Auto-Delete & Summarization Enabled) ===")
     
     try:
         while True:
@@ -181,17 +195,20 @@ if __name__ == "__main__":
             transcript = transcribe_audio()
             
             if transcript and len(transcript) > 3 and "[BLANK_AUDIO]" not in transcript:
-                print(f"\n[Transcript Detected]: '{transcript}'")
-                advice = generate_deescalation_advice(transcript)
+                print(f"\n[Raw Transcript]: '{transcript}'")
+                
+                # Generate summary and advice in one call
+                summary, advice = process_transcript(transcript)
+                print(f"[Summary Saved]: {summary}")
                 print(f"[Mediator Advice]: {advice}")
                 
-                # Speak advice aloud via Android TTS
+                # Speak advice aloud
                 speak_advice(advice)
                 
-                # Save to encrypted DB
-                save_encrypted_memory(transcript, advice)
+                # Save only the summary and advice (no raw audio or full transcript)
+                save_encrypted_summary(summary, advice)
             else:
-                print("[Silence or ambient noise]")
+                print("[Silence or ambient noise - temporary audio files purged]")
                 
     except KeyboardInterrupt:
         print("\n[Engine Stopped Manually]")
