@@ -9,8 +9,8 @@ version = 1.0.0
 # Android Permissions
 android.permissions = RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 
-# Clean p4a build dependencies (pycryptodomex has a direct p4a recipe)
-requirements = python3, kivy==2.2.1, pycryptodomex, openssl, urllib3
+# Standard p4a recipes only
+requirements = python3, kivy==2.2.1, pycryptodomex, openssl
 
 # Display Settings
 orientation = portrait
