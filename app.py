@@ -1,7 +1,12 @@
 import os
 import time
+import json
 import sqlite3
-from flask import Flask, request, render_template_string, redirect, url_for
+import base64
+from flask import Flask, request, render_template_string, redirect, url_for, Response
+from Crypto.Cipher import AES
+from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Util.Padding import pad
 
 app = Flask(__name__)
 DB_FILE = "encrypted_memory.db"
@@ -12,7 +17,6 @@ def get_db():
     cursor = conn.cursor()
     cursor.execute(f"PRAGMA key = '{PASSPHRASE}';")
     
-    # Knowledge Base Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS knowledge_base (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,8 +26,6 @@ def get_db():
             weight INTEGER DEFAULT 1
         )
     """)
-    
-    # Memories Table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS memories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +36,25 @@ def get_db():
     """)
     conn.commit()
     return conn, cursor
+
+def encrypt_payload(data_dict, passphrase):
+    # Derive a 256-bit AES key using PBKDF2
+    salt = os.urandom(16)
+    key = PBKDF2(passphrase, salt, dkLen=32, count=1000)
+    cipher = AES.new(key, AES.MODE_CBC)
+    
+    # Serialize JSON and pad
+    json_bytes = json.dumps(data_dict).encode('utf-8')
+    padded_data = pad(json_bytes, AES.block_size)
+    ciphertext = cipher.encrypt(padded_data)
+    
+    # Combine salt + IV + ciphertext in Base64 wrapper
+    backup_payload = {
+        "salt": base64.b64encode(salt).decode('utf-8'),
+        "iv": base64.b64encode(cipher.iv).decode('utf-8'),
+        "data": base64.b64encode(ciphertext).decode('utf-8')
+    }
+    return json.dumps(backup_payload, indent=2)
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -46,7 +67,8 @@ HTML_TEMPLATE = """
         h2 { color: #4caf50; border-bottom: 1px solid #333; padding-bottom: 5px; }
         .card { background: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
         input, select, textarea { width: 100%; padding: 8px; margin: 5px 0 15px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px; box-sizing: border-box; }
-        button { background: #4caf50; color: white; padding: 10px 15px; border: none; border-radius: 4px; font-weight: bold; width: 100%; }
+        button, .btn { background: #4caf50; color: white; padding: 10px 15px; border: none; border-radius: 4px; font-weight: bold; width: 100%; display: inline-block; text-align: center; text-decoration: none; box-sizing: border-box; }
+        .btn-export { background: #2196F3; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { text-align: left; padding: 8px; border-bottom: 1px solid #333; font-size: 0.9em; }
         th { color: #888; }
@@ -56,6 +78,12 @@ HTML_TEMPLATE = """
 <body>
     <h2>Viciously Mediator Web Admin</h2>
     
+    <div class="card">
+        <h3>Backup Options</h3>
+        <p style="font-size: 0.85em; color: #aaa;">Export all recorded memories and knowledge base context into an AES-256 encrypted JSON file.</p>
+        <a href="/export_backup" class="btn btn-export">🔒 Download Encrypted Backup (.json)</a>
+    </div>
+
     <div class="card">
         <h3>Add History / Conflict Boundary</h3>
         <form action="/add_rule" method="POST">
@@ -145,6 +173,38 @@ def delete_rule(rule_id):
     conn.commit()
     conn.close()
     return redirect(url_for('index'))
+
+@app.route('/export_backup')
+def export_backup():
+    conn, cursor = get_db()
+    
+    cursor.execute("SELECT id, timestamp, transcript, advice FROM memories")
+    memories = [
+        {"id": row[0], "timestamp": row[1], "transcript": row[2], "advice": row[3]} 
+        for row in cursor.fetchall()
+    ]
+    
+    cursor.execute("SELECT id, category, subject, fact_or_rule, weight FROM knowledge_base")
+    knowledge = [
+        {"id": row[0], "category": row[1], "subject": row[2], "fact_or_rule": row[3], "weight": row[4]} 
+        for row in cursor.fetchall()
+    ]
+    conn.close()
+    
+    backup_data = {
+        "export_timestamp": int(time.time()),
+        "memories": memories,
+        "knowledge_base": knowledge
+    }
+    
+    encrypted_file = encrypt_payload(backup_data, PASSPHRASE)
+    filename = f"viciously_backup_{int(time.time())}.json"
+    
+    return Response(
+        encrypted_file,
+        mimetype="application/json",
+        headers={"Content-disposition": f"attachment; filename={filename}"}
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

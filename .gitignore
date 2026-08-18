@@ -1,5 +1,8 @@
-*.db
-*.m4a
+*.log
 *.wav
+*.txt
+*.db
+*.db_key
+.bin/
 __pycache__/
-.env
+*.pyc
