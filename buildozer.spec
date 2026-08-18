@@ -16,7 +16,7 @@ requirements = python3, kivy, requests, pycryptodome
 orientation = portrait
 fullscreen = 0
 
-# Android SDK/NDK Specification
+# Android SDK/NDK Config
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
@@ -24,7 +24,7 @@ android.build_tools_version = 33.0.2
 android.archs = arm64-v8a
 android.accept_sdk_license = True
 
-# Foreground Service Entrypoint
+# Foreground Service Configuration
 services = viciously_service:service.py:foreground
 
 [buildozer]

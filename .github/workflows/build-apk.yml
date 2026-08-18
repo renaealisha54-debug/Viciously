@@ -28,19 +28,6 @@ jobs:
         pip install --upgrade pip
         pip install "buildozer>=1.5.0" "cython<3.0.0" kivy
 
-    - name: Pre-Accept Android SDK Licenses
-      run: |
-        SDK_DIR="$HOME/.buildozer/android/platform/android-sdk"
-        LICENSES_DIR="$SDK_DIR/licenses"
-        mkdir -p "$LICENSES_DIR"
-        
-        # Inject standard Google SDK license hashes
-        echo -e "\n24333f8a6378b741d05da42707206b83e0e4af1b" > "$LICENSES_DIR/android-sdk-license"
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" >> "$LICENSES_DIR/android-sdk-license"
-        echo -e "\nd975f75130aa09605989573623a6844113456935" > "$LICENSES_DIR/android-sdk-preview-license"
-        echo -e "\n33b622e74721051520e53995f36e4f1642c13149" > "$LICENSES_DIR/android-googletv-license"
-        echo -e "\n601007157806018d9735510f2249e29087541ef4" > "$LICENSES_DIR/mips-android-sysimage-license"
-
     - name: Build APK with Buildozer
       run: |
         cd ${{ github.workspace }}
