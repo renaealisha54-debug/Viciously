@@ -66,18 +66,29 @@ def save_encrypted_memory(transcript, advice):
     except Exception as e:
         print(f"[DB Error] Failed to save memory: {e}")
 
+# --- Text-to-Speech Output ---
+
+def speak_advice(text):
+    """Speaks advice aloud using Android's native TTS via Termux API."""
+    if not text:
+        return
+    print(f"[TTS Output] Speaking: '{text}'")
+    try:
+        # -r 1.1 sets a slightly natural speech rate
+        subprocess.run(["termux-tts-speak", "-r", "1.1", text], check=True)
+    except Exception as e:
+        print(f"[TTS Error] Could not speak advice: {e}")
+
 # --- Hardware Audio & STT Functions ---
 
 def record_audio_chunk(duration_sec=5):
     """Captures a raw audio chunk using Termux API and converts to 16kHz WAV."""
     print(f"\n[Microphone] Listening for {duration_sec} seconds...")
     
-    # 1. Capture raw audio using termux-api
     subprocess.run(["termux-audio-record", "-f", RAW_AUDIO], check=True)
     time.sleep(duration_sec)
     subprocess.run(["termux-audio-record", "-q"], check=True)
     
-    # 2. Convert to 16kHz mono WAV format required by whisper.cpp
     if os.path.exists(RAW_AUDIO):
         ffmpeg_cmd = [
             "ffmpeg", "-y", "-i", RAW_AUDIO,
@@ -85,25 +96,24 @@ def record_audio_chunk(duration_sec=5):
             WAV_AUDIO
         ]
         subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        os.remove(RAW_AUDIO) # Clear raw buffer immediately
+        os.remove(RAW_AUDIO)
 
 def transcribe_audio():
     """Executes whisper.cpp C++ binary on the converted WAV file."""
     if not os.path.exists(WAV_AUDIO):
         return ""
         
-    print("[Whisper.cpp] Transcribing audio in RAM...")
+    print("[Whisper.cpp] Transcribing audio...")
     cmd = [
         WHISPER_PATH,
         "-m", MODEL_PATH,
         "-f", WAV_AUDIO,
-        "-nt",          # No timestamps in output
-        "-otxt"         # Output plain text
+        "-nt",
+        "-otxt"
     ]
     
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Read generated text file and clean up audio artifacts
     txt_output = WAV_AUDIO + ".txt"
     transcript = ""
     if os.path.exists(txt_output):
@@ -112,7 +122,7 @@ def transcribe_audio():
         os.remove(txt_output)
         
     if os.path.exists(WAV_AUDIO):
-        os.remove(WAV_AUDIO) # Clear WAV buffer
+        os.remove(WAV_AUDIO)
         
     return transcript
 
@@ -130,7 +140,6 @@ def generate_deescalation_advice(transcript):
         f"{background_context}"
     )
     
-    # Primary Path: Groq API Cloud Inference
     if groq_api_key:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -149,7 +158,6 @@ def generate_deescalation_advice(transcript):
         except Exception as e:
             print(f"[Cloud Fallback] Groq unavailable: {e}")
 
-    # Fallback Path: Local Ollama Inference
     try:
         ollama_url = "http://localhost:11434/api/generate"
         prompt = f"{system_prompt}\n\nTranscript: \"{transcript}\"\nAdvice:"
@@ -165,18 +173,22 @@ def generate_deescalation_advice(transcript):
 # --- Main Engine Execution Loop ---
 
 if __name__ == "__main__":
-    print("=== Viciously Engine Active ===")
+    print("=== Viciously Engine Active (TTS Enabled) ===")
     
     try:
         while True:
             record_audio_chunk(duration_sec=5)
             transcript = transcribe_audio()
             
-            # Skip processing if silence or empty audio
             if transcript and len(transcript) > 3 and "[BLANK_AUDIO]" not in transcript:
                 print(f"\n[Transcript Detected]: '{transcript}'")
                 advice = generate_deescalation_advice(transcript)
                 print(f"[Mediator Advice]: {advice}")
+                
+                # Speak advice aloud via Android TTS
+                speak_advice(advice)
+                
+                # Save to encrypted DB
                 save_encrypted_memory(transcript, advice)
             else:
                 print("[Silence or ambient noise]")
