@@ -10,13 +10,13 @@ version = 1.0.0
 android.permissions = RECORD_AUDIO, MODIFY_AUDIO_SETTINGS, INTERNET, WAKE_LOCK, FOREGROUND_SERVICE, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 
 # Python dependencies
-requirements = python3, kivy, requests, pycryptodome
+requirements = python3, kivy==2.2.1, requests, pycryptodome
 
 # Display Settings
 orientation = portrait
 fullscreen = 0
 
-# Android SDK/NDK Config
+# SDK/NDK Pins
 android.api = 33
 android.minapi = 21
 android.ndk = 25b
@@ -24,7 +24,7 @@ android.build_tools_version = 33.0.2
 android.archs = arm64-v8a
 android.accept_sdk_license = True
 
-# Foreground Service Configuration
+# Foreground Service
 services = viciously_service:service.py:foreground
 
 [buildozer]
