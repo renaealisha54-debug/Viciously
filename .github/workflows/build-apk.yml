@@ -23,15 +23,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential libsqlite3-dev ffmpeg libffi-dev libssl-dev libxml2-dev libxslt1-dev zlib1g-dev default-jdk
 
-    - name: Install Buildozer & Dependencies
+    - name: Install Buildozer & Cython
       run: |
         pip install --upgrade pip
-        pip install buildozer cython kivy
+        pip install "buildozer>=1.5.0" "cython<3.0.0" kivy
 
-    - name: Build APK with Buildozer
+    - name: Accept Android SDK Licenses & Build
       run: |
         cd ${{ github.workspace }}
-        buildozer -v android debug
+        mkdir -p ~/.android
+        touch ~/.android/repositories.cfg
+        # Pre-accept all licenses non-interactively
+        yes | buildozer android debug || true
+        # Run final compilation pass
+        yes | buildozer -v android debug
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
