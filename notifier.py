@@ -1,5 +1,8 @@
 import subprocess
-from kivy.utils import platform
+try:
+    from kivy.utils import platform
+except ModuleNotFoundError:
+    platform = "unknown"
 
 def send_android_notification(title, message):
     """Triggers native Android notification bar alert."""

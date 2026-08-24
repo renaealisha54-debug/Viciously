@@ -69,7 +69,7 @@ STOP_COMMANDS = ["stop recording", "recording off"]
 
 # --- Tunables ---
 AMPLITUDE_RMS_THRESHOLD = 4000       # tune from AI Settings tab; int16 RMS
-SAMPLE_DURATION_SEC = 2              # short probe clip used for keyword spotting
+SAMPLE_DURATION_SEC = 3.5             # short probe clip used for keyword spotting
 IDLE_POLL_INTERVAL_SEC = 1.5         # gap between idle probes
 FUZZY_MATCH_MAX_DISTANCE = 2         # ceiling only; actual max is length-scaled, see _max_distance_for
 
@@ -176,9 +176,12 @@ def _subsequence_matches_phrase(transcript_words, start, phrase_words):
 def record_probe_clip(duration_sec=SAMPLE_DURATION_SEC):
     """Records a short probe clip for amplitude + keyword checks. Deletes itself when read."""
     raw_path = os.path.join(BASE_DIR, "probe_raw.m4a")
-    subprocess.run(["termux-audio-record", "-f", raw_path], check=True)
+    if os.path.exists(raw_path):
+        os.remove(raw_path)
+    subprocess.run(["termux-microphone-record", "-f", raw_path], check=True)
     time.sleep(duration_sec)
-    subprocess.run(["termux-audio-record", "-q"], check=True)
+    subprocess.run(["termux-microphone-record", "-q"], check=True)
+    time.sleep(0.5)
 
     if not os.path.exists(raw_path):
         return None

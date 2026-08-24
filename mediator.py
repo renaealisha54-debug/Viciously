@@ -89,9 +89,9 @@ def record_audio_chunk(duration_sec=7):
     """Captures audio chunk and instantly purges raw file after WAV conversion."""
     print(f"\n[Microphone] Monitoring conversation ({duration_sec}s)...")
     
-    subprocess.run(["termux-audio-record", "-f", RAW_AUDIO], check=True)
+    subprocess.run(["termux-microphone-record", "-f", RAW_AUDIO], check=True)
     time.sleep(duration_sec)
-    subprocess.run(["termux-audio-record", "-q"], check=True)
+    subprocess.run(["termux-microphone-record", "-q"], check=True)
     
     if os.path.exists(RAW_AUDIO):
         ffmpeg_cmd = [
