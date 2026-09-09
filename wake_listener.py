@@ -5,8 +5,11 @@ import sys
 
 WHISPER_BIN = os.path.expanduser("~/whisper.cpp/build/bin/whisper-cli")
 MODEL_PATH = os.path.expanduser("~/whisper.cpp/models/ggml-base.en.bin")
-SAMPLE_DURATION_SEC = 5
+SAMPLE_DURATION_SEC = 3
 IDLE_POLL_INTERVAL_SEC = 1
+
+# Add your custom wake words/phrases here (lowercase)
+WAKE_WORDS = ["viciously", "hey viciously", "listen", "stop", "help", "calm"]
 
 def cheap_transcribe(m4a_path):
     if not m4a_path or not os.path.exists(m4a_path):
@@ -17,14 +20,14 @@ def cheap_transcribe(m4a_path):
         subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         whisper_cmd = [WHISPER_BIN, "-m", MODEL_PATH, "-f", wav_path, "-nt"]
         res = subprocess.run(whisper_cmd, capture_output=True, text=True, timeout=10)
-        return res.stdout.strip()
+        return res.stdout.strip().lower()
     except Exception:
         return ""
     finally:
         if os.path.exists(wav_path):
             os.remove(wav_path)
 
-def record_probe_clip(duration_sec=5):
+def record_probe_clip(duration_sec=3):
     out_dir = os.path.expanduser("~/viciously")
     os.makedirs(out_dir, exist_ok=True)
     m4a_path = os.path.join(out_dir, "probe_raw.m4a")
@@ -36,20 +39,23 @@ def record_probe_clip(duration_sec=5):
     return m4a_path if os.path.exists(m4a_path) else None
 
 def run_full_pipeline(reason="speech detected"):
-    print(f"\n[TRIGGER] Alert triggered! Reason: {reason}")
+    print(f"\n[TRIGGER] Wake word matched! Reason: {reason}")
     mediator_path = os.path.expanduser("~/Viciously/mediator.py")
     if os.path.exists(mediator_path):
         subprocess.run(["python3", mediator_path])
 
 def idle_gate_loop():
-    print("Listening for spoken words...")
+    print(f"Listening continuously for wake words: {WAKE_WORDS}...")
     while True:
         m4a_path = record_probe_clip(SAMPLE_DURATION_SEC)
         if m4a_path:
             transcript = cheap_transcribe(m4a_path)
-            if transcript and not transcript.startswith("["):
-                print(f"[HEARD]: '{transcript}'")
-                run_full_pipeline(reason=f"Detected speech: '{transcript}'")
+            if transcript:
+                # Check if any wake word is in the transcribed text
+                if any(w in transcript for w in WAKE_WORDS):
+                    run_full_pipeline(reason=f"Detected wake phrase: '{transcript}'")
+                else:
+                    print(f"[Ignored background speech]: '{transcript}'")
             if os.path.exists(m4a_path):
                 os.remove(m4a_path)
         time.sleep(IDLE_POLL_INTERVAL_SEC)
