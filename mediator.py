@@ -1,12 +1,19 @@
 import os
 import time
 import subprocess
+import sys
 import requests
 
 WHISPER_BIN = os.path.expanduser("~/whisper.cpp/build/bin/whisper-cli")
 MODEL_PATH = os.path.expanduser("~/whisper.cpp/models/ggml-base.en.bin")
 WORK_DIR = os.path.expanduser("~/viciously")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+MODEL_CANDIDATES = [
+    "llama-3.1-8b-instant",
+    "llama3-8b-8192",
+    "mixtral-8x7b-32768"
+]
 
 os.makedirs(WORK_DIR, exist_ok=True)
 
@@ -23,8 +30,8 @@ def speak(text):
 
 def generate_deescalation(spoken_text):
     if not GROQ_API_KEY:
-        print("\n[Notice] GROQ_API_KEY environment variable is empty. Using local fallback.")
-        speak("Let's take a pause and take a deep breath before continuing.")
+        print("\n[Notice] GROQ_API_KEY missing. Using fallback response.")
+        speak("Let's take a short pause so we can speak calmly.")
         return
 
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -32,35 +39,34 @@ def generate_deescalation(spoken_text):
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a calm mediator during a heated discussion. Output exactly one brief, soothing sentence to lower tension."
-            },
-            {
-                "role": "user",
-                "content": f"The phrase '{spoken_text}' was just spoken. Give a brief de-escalation response."
-            }
-        ],
-        "max_tokens": 50
-    }
 
-    try:
-        res = requests.post(url, json=payload, headers=headers, timeout=5)
-        data = res.json()
-        
-        if "choices" in data and len(data["choices"]) > 0:
-            reply = data["choices"][0]["message"]["content"].strip()
-            speak(reply)
-        else:
-            err_msg = data.get("error", {}).get("message", str(data))
-            print(f"[Groq API Error]: {err_msg}")
-            speak("Let me step in for a second so we can speak calmly.")
-    except Exception as e:
-        print(f"[Request Error]: {e}")
-        speak("Let's take a short pause to keep things calm.")
+    for model in MODEL_CANDIDATES:
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a calm mediator in a heated conversation. Output exactly one short, de-escalating sentence."
+                },
+                {
+                    "role": "user",
+                    "content": f"The phrase '{spoken_text}' was spoken in anger. Provide a short mediator response."
+                }
+            ],
+            "max_tokens": 50
+        }
+
+        try:
+            res = requests.post(url, json=payload, headers=headers, timeout=5)
+            data = res.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                reply = data["choices"][0]["message"]["content"].strip()
+                speak(reply)
+                return
+        except Exception:
+            continue
+
+    speak("Let me step in for a second so we can speak calmly.")
 
 def record_audio_chunk(duration_sec=7):
     m4a_path = os.path.join(WORK_DIR, "raw_chunk.m4a")
@@ -105,5 +111,8 @@ def process_chunk():
         cleanup_file(wav_path)
 
 if __name__ == "__main__":
-    print("=== Viciously Mediator Engine Active ===")
-    process_chunk()
+    try:
+        print("=== Viciously Mediator Engine Active ===")
+        process_chunk()
+    except KeyboardInterrupt:
+        sys.exit(0)
