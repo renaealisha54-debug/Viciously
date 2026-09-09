@@ -49,7 +49,7 @@ def transcribe_and_deescalate(audio_file_path):
 class ViciouslyUI(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(orientation='vertical', **kwargs)
-        self.add_widget(Label(text="Viciously Mediator Active", font_size='20sp'))
+        self.add_widget(Label(text="Viciously Mediator Active (openWakeWord)", font_size='20sp'))
 
 class ViciouslyApp(App):
     def build(self):
