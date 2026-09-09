@@ -1,72 +1,253 @@
 import os
-import requests
-import threading
+import json
+import sqlite3
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
-from plyer import tts
-
-# Native Android imports via Pyjnius
+from kivy.uix.button import Button
+from kivy.uix.switch import Switch
+from kivy.uix.spinner import Spinner
+from kivy.uix.slider import Slider
+from kivy.uix.progressbar import ProgressBar
+from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelHeader
+from kivy.graphics import Color, Rectangle
 from kivy.utils import platform
-if platform == 'android':
-    from jnius import autoclass
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    NotificationManager = autoclass('android.app.NotificationManager')
-    NotificationChannel = autoclass('android.app.NotificationChannel')
-    NotificationBuilder = autoclass('androidx.core.app.NotificationCompat$Builder')
-    Context = autoclass('android.content.Context')
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+DB_PATH = os.path.expanduser("~/viciously/encrypted_mediator.db")
+LIVE_STATUS_PATH = os.path.expanduser("~/viciously/live_status.json")
 
-def start_foreground_notification():
-    """Spawns an ongoing status notification so Android keeps the app active in RAM."""
-    if platform != 'android':
-        return
-
-    try:
-        activity = PythonActivity.mActivity
-        channel_id = "viciously_mediator_channel"
-        channel_name = "Viciously Service Channel"
-
-        # Create Notification Channel (Android 8.0+)
-        notification_service = activity.getSystemService(Context.NOTIFICATION_SERVICE)
-        channel = NotificationChannel(
-            channel_id, 
-            channel_name, 
-            NotificationManager.IMPORTANCE_LOW
-        )
-        notification_service.createNotificationChannel(channel)
-
-        # Build Persistent Notification
-        builder = NotificationBuilder(activity, channel_id)
-        builder.setContentTitle("Viciously Voice Mediator")
-        builder.setContentText("Active & monitoring for de-escalation triggers...")
-        builder.setSmallIcon(activity.getApplicationInfo().icon)
-        builder.setOngoing(True)
-
-        # Notify Android
-        notification = builder.build()
-        notification_service.notify(1001, notification)
-        print("[Android] Persistent Foreground Notification active.")
-    except Exception as e:
-        print(f"[Android Error] Failed to start notification: {e}")
-
-def speak(text):
-    try:
-        tts.speak(text)
-    except Exception:
-        pass
-
-class ViciouslyUI(BoxLayout):
+class StyledTabbedPanel(TabbedPanel):
     def __init__(self, **kwargs):
-        super().__init__(orientation='vertical', **kwargs)
-        self.add_widget(Label(text="Viciously Active in Background", font_size='20sp'))
+        super().__init__(**kwargs)
+        self.do_default_tab = False
+        self.background_color = (0.08, 0.09, 0.11, 1)
+
+        self.dashboard_tab = TabbedPanelHeader(text='Dashboard')
+        self.dashboard_tab.content = self.build_dashboard()
+        self.add_widget(self.dashboard_tab)
+
+        self.settings_tab = TabbedPanelHeader(text='AI Settings')
+        self.settings_tab.content = self.build_settings()
+        self.add_widget(self.settings_tab)
+
+    def build_dashboard(self):
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+
+        status_card = BoxLayout(orientation='vertical', size_hint_y=0.18, padding=10)
+        with status_card.canvas.before:
+            Color(0.12, 0.15, 0.18, 1)
+            self.rect1 = Rectangle(size=status_card.size, pos=status_card.pos)
+        status_card.bind(size=self._update_rect1, pos=self._update_rect1)
+
+        self.status_label = Label(
+            text="[b][color=00ffcc]* ENGINE ACTIVE[/color][/b]\n[size=14sp]System Status: Monitoring Audio[/size]",
+            markup=True,
+            halign='center'
+        )
+        status_card.add_widget(self.status_label)
+        layout.add_widget(status_card)
+
+        live_card = BoxLayout(orientation='vertical', size_hint_y=0.16, padding=10, spacing=4)
+        with live_card.canvas.before:
+            Color(0.1, 0.12, 0.15, 1)
+            self.rect_live = Rectangle(size=live_card.size, pos=live_card.pos)
+        live_card.bind(size=self._update_rect_live, pos=self._update_rect_live)
+
+        self.escalation_label = Label(
+            text="[b]Escalation (last 5 min):[/b] 0%",
+            markup=True, size_hint_y=None, height=22, halign='left'
+        )
+        live_card.add_widget(self.escalation_label)
+        self.escalation_bar = ProgressBar(max=100, value=0, size_hint_y=None, height=14)
+        live_card.add_widget(self.escalation_bar)
+
+        self.level_label = Label(
+            text="[b]Live Level:[/b] 0%",
+            markup=True, size_hint_y=None, height=22, halign='left'
+        )
+        live_card.add_widget(self.level_label)
+        self.level_bar = ProgressBar(max=100, value=0, size_hint_y=None, height=14)
+        live_card.add_widget(self.level_bar)
+
+        layout.add_widget(live_card)
+
+        Clock.schedule_interval(self.refresh_live_status, 0.5)
+
+        btn_layout = BoxLayout(orientation='horizontal', spacing=10, size_hint_y=0.12)
+
+        self.start_btn = Button(
+            text="Start Service",
+            background_color=(0.1, 0.7, 0.4, 1),
+            font_size='14sp',
+            bold=True
+        )
+        self.start_btn.bind(on_press=self.start_service)
+        btn_layout.add_widget(self.start_btn)
+
+        self.stop_btn = Button(
+            text="Stop Service",
+            background_color=(0.8, 0.2, 0.2, 1),
+            font_size='14sp',
+            bold=True
+        )
+        self.stop_btn.bind(on_press=self.stop_service)
+        btn_layout.add_widget(self.stop_btn)
+
+        self.refresh_btn = Button(
+            text="Refresh Logs",
+            background_color=(0.2, 0.5, 0.8, 1),
+            font_size='14sp'
+        )
+        self.refresh_btn.bind(on_press=self.load_history)
+        btn_layout.add_widget(self.refresh_btn)
+
+        layout.add_widget(btn_layout)
+
+        scroll = ScrollView(size_hint=(1, 0.7))
+        self.log_text = Label(
+            text="Loading encrypted database history...",
+            markup=True,
+            size_hint_y=None,
+            halign='left',
+            valign='top',
+            padding=(10, 10)
+        )
+        self.log_text.bind(texture_size=self.log_text.setter('size'))
+        scroll.add_widget(self.log_text)
+        layout.add_widget(scroll)
+
+        self.load_history(None)
+        return layout
+
+    def build_settings(self):
+        layout = ScrollView(padding=15)
+        grid = GridLayout(cols=1, spacing=15, size_hint_y=None)
+        grid.bind(minimum_height=grid.setter('height'))
+
+        grid.add_widget(Label(
+            text="[b][color=00ffcc]Engine & AI Preferences[/color][/b]",
+            markup=True,
+            font_size='18sp',
+            size_hint_y=None,
+            height=30
+        ))
+
+        grid.add_widget(Label(text="De-escalation Tone Mode:", size_hint_y=None, height=25, halign='left'))
+        self.tone_spinner = Spinner(
+            text='Empathetic & Calm',
+            values=('Empathetic & Calm', 'Direct & Firm', 'Socratic & Neutral', 'Humorous'),
+            size_hint_y=None,
+            height=40,
+            background_color=(0.2, 0.25, 0.3, 1)
+        )
+        grid.add_widget(self.tone_spinner)
+
+        grid.add_widget(Label(text="Audio Trigger Sensitivity:", size_hint_y=None, height=25))
+        self.sens_slider = Slider(min=1, max=10, value=7, size_hint_y=None, height=30)
+        grid.add_widget(self.sens_slider)
+
+        diar_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40)
+        diar_layout.add_widget(Label(text="Enable Dual-Speaker Diarization:"))
+        diar_layout.add_widget(Switch(active=True))
+        grid.add_widget(diar_layout)
+
+        enc_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40)
+        enc_layout.add_widget(Label(text="Enforce AES-256 Memory Encryption:"))
+        enc_layout.add_widget(Switch(active=True))
+        grid.add_widget(enc_layout)
+
+        grid.add_widget(Label(text="Auto-Purge Data Retention:", size_hint_y=None, height=25))
+        self.purge_spinner = Spinner(
+            text='7 Days',
+            values=('24 Hours', '3 Days', '7 Days', '30 Days', 'Never Save Logs'),
+            size_hint_y=None,
+            height=40,
+            background_color=(0.2, 0.25, 0.3, 1)
+        )
+        grid.add_widget(self.purge_spinner)
+
+        save_btn = Button(
+            text="Save AI Configurations",
+            size_hint_y=None,
+            height=45,
+            background_color=(0.0, 0.8, 0.6, 1),
+            bold=True
+        )
+        grid.add_widget(save_btn)
+
+        layout.add_widget(grid)
+        return layout
+
+    def _update_rect1(self, instance, value):
+        self.rect1.pos = instance.pos
+        self.rect1.size = instance.size
+
+    def _update_rect_live(self, instance, value):
+        self.rect_live.pos = instance.pos
+        self.rect_live.size = instance.size
+
+    def refresh_live_status(self, dt):
+        if not os.path.exists(LIVE_STATUS_PATH):
+            return
+        try:
+            with open(LIVE_STATUS_PATH, "r") as f:
+                status = json.load(f)
+        except Exception:
+            return
+
+        escalation = status.get("escalation_percent", 0)
+        level = status.get("current_level_percent", 0)
+
+        self.escalation_label.text = f"[b]Escalation (last 5 min):[/b] {escalation}%"
+        self.escalation_bar.value = escalation
+        self.level_label.text = f"[b]Live Level:[/b] {level}%"
+        self.level_bar.value = level
+
+    def load_history(self, instance):
+        if not os.path.exists(DB_PATH):
+            self.log_text.text = "[color=888888]No saved logs yet. System actively listening.[/color]"
+            return
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT timestamp, analysis_summary, spoken_advice FROM memories ORDER BY id DESC LIMIT 10")
+            rows = cursor.fetchall()
+            conn.close()
+
+            if not rows:
+                self.log_text.text = "[color=888888]No de-escalation events recorded.[/color]"
+                return
+
+            display_output = ""
+            for row in rows:
+                ts, summary, advice = row
+                display_output += f"[color=00ffcc]* Memory Event[/color]\n[b]Analysis:[/b] {summary}\n[b]Advice:[/b] {advice}\n[color=444444]-----------------------------------[/color]\n"
+
+            self.log_text.text = display_output
+        except Exception as e:
+            self.log_text.text = f"Error reading database: {e}"
+
+    def start_service(self, instance):
+        if platform == 'android':
+            from android import AndroidService
+            service = AndroidService('Viciously Engine', 'Monitoring in background...')
+            service.start('service started')
+            self.status_label.text = "[b][color=00ffcc]* ENGINE ACTIVE[/color][/b]\n[size=14sp]Foreground Service Running[/size]"
+
+    def stop_service(self, instance):
+        if platform == 'android':
+            from android import AndroidService
+            service = AndroidService('Viciously Engine', 'Monitoring in background...')
+            service.stop()
+            self.status_label.text = "[b][color=ff3333]o ENGINE PAUSED[/color][/b]\n[size=14sp]Foreground Service Stopped[/size]"
 
 class ViciouslyApp(App):
     def build(self):
-        # Trigger foreground notification when application boots
-        start_foreground_notification()
-        return ViciouslyUI()
+        return StyledTabbedPanel()
 
 if __name__ == "__main__":
     ViciouslyApp().run()
