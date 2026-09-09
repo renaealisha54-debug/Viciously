@@ -8,8 +8,11 @@ MODEL_PATH = os.path.expanduser("~/whisper.cpp/models/ggml-base.en.bin")
 SAMPLE_DURATION_SEC = 3
 IDLE_POLL_INTERVAL_SEC = 1
 
-# Add your custom wake words/phrases here (lowercase)
-WAKE_WORDS = ["viciously", "hey viciously", "listen", "stop", "help", "calm"]
+# Triggers on named wake words AND common escalation indicators
+WAKE_WORDS = [
+    "viciously", "hey viciously", "listen", "stop", "help", "calm",
+    "fuck", "shit", "shut up", "don't", "whatever", "bitch", "argument"
+]
 
 def cheap_transcribe(m4a_path):
     if not m4a_path or not os.path.exists(m4a_path):
@@ -39,21 +42,20 @@ def record_probe_clip(duration_sec=3):
     return m4a_path if os.path.exists(m4a_path) else None
 
 def run_full_pipeline(reason="speech detected"):
-    print(f"\n[TRIGGER] Wake word matched! Reason: {reason}")
+    print(f"\n[TRIGGER] Wake word/Hostility matched! Reason: {reason}")
     mediator_path = os.path.expanduser("~/Viciously/mediator.py")
     if os.path.exists(mediator_path):
         subprocess.run(["python3", mediator_path])
 
 def idle_gate_loop():
-    print(f"Listening continuously for wake words: {WAKE_WORDS}...")
+    print(f"Listening continuously for triggers: {WAKE_WORDS}...")
     while True:
         m4a_path = record_probe_clip(SAMPLE_DURATION_SEC)
         if m4a_path:
             transcript = cheap_transcribe(m4a_path)
             if transcript:
-                # Check if any wake word is in the transcribed text
                 if any(w in transcript for w in WAKE_WORDS):
-                    run_full_pipeline(reason=f"Detected wake phrase: '{transcript}'")
+                    run_full_pipeline(reason=f"Detected phrase: '{transcript}'")
                 else:
                     print(f"[Ignored background speech]: '{transcript}'")
             if os.path.exists(m4a_path):
