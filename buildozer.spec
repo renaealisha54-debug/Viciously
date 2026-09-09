@@ -12,3 +12,5 @@ android.permissions = RECORD_AUDIO, INTERNET, FOREGROUND_SERVICE, POST_NOTIFICAT
 android.api = 33
 android.minapi = 21
 android.accept_sdk_licenses = True
+
+android.ndk = 25b
