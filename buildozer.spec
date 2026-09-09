@@ -11,3 +11,4 @@ fullscreen = 0
 android.permissions = RECORD_AUDIO, INTERNET, FOREGROUND_SERVICE
 android.api = 33
 android.minapi = 21
+android.accept_sdk_licenses = True
