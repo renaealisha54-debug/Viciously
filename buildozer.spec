@@ -11,5 +11,5 @@ fullscreen = 0
 android.permissions = RECORD_AUDIO, INTERNET, FOREGROUND_SERVICE, POST_NOTIFICATIONS
 android.api = 33
 android.minapi = 21
-android.accept_sdk_licenses = True
+android.accept_sdk_license = True
 p4a.branch = master
